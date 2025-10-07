@@ -1,0 +1,10 @@
+# Frontend (Next.js)
+voting-dapp/node_modules
+voting-dapp/.next
+voting-dapp/.env*
+
+# Backend (Solidity/Hardhat)
+sol-proj/node_modules
+sol-proj/artifacts
+sol-proj/cache
+sol-proj/.env*
