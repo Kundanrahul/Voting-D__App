@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { getVotingContract } from "../../lib/Voting";
 import CandidateCard from "./CandidateCard";
 
 interface Candidate {
