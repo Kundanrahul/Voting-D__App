@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import CandidateCard from "./CandidateCard";
-import { getReadOnlyContract } from "../../lib/Voting";
+import { getReadOnlyContract } from "../../lib/Voting"; // Your Voting contract helper
+import { ethers } from "ethers";
 
 interface Candidate {
   name: string;
@@ -15,16 +16,19 @@ const CandidatesList: React.FC = () => {
   const [votedIndex, setVotedIndex] = useState<number | null>(null);
   const [status, setStatus] = useState("");
 
-  // Fetch candidates from contract
+  // ✅ Fetch candidates & voter info
   const fetchCandidates = async () => {
     try {
-      const contract = await getReadOnlyContract();
-      if (!contract) return;
+      const contract: any = await getReadOnlyContract();
+      if (!contract) {
+        setStatus("❌ Contract not found!");
+        return;
+      }
 
       const totalBN = await contract.totalCandidates();
       const total = totalBN.toNumber?.() ?? Number(totalBN);
-      const arr: Candidate[] = [];
 
+      const arr: Candidate[] = [];
       for (let i = 0; i < total; i++) {
         const c = await contract.getCandidate(i);
         arr.push({
@@ -36,10 +40,10 @@ const CandidatesList: React.FC = () => {
       setCandidates(arr);
 
       // Check if user already voted
-      if ((window as any).ethereum) {
-        const accounts: string[] = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
+      const accounts: string[] = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
+      if (accounts.length > 0) {
         const voter = await contract.voters(accounts[0]);
-        if (voter.voted) setVotedIndex(voter.voteIndex.toNumber?.() ?? Number(voter.voteIndex));
+        setVotedIndex(voter.voted ? (voter.voteIndex.toNumber?.() ?? Number(voter.voteIndex)) : null);
       }
     } catch (err: any) {
       console.error(err);
@@ -47,25 +51,32 @@ const CandidatesList: React.FC = () => {
     }
   };
 
-  // Vote function
+  // ✅ Vote function
   const voteForCandidate = async (index: number) => {
     try {
       if (!(window as any).ethereum) {
-        setStatus("❌ Connect your wallet first!");
+        setStatus("❌ Ethereum wallet not detected!");
         return;
       }
 
-      const provider = new (window as any).ethers.BrowserProvider((window as any).ethereum);
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      await provider.send("eth_requestAccounts", []);
       const signer = await provider.getSigner();
-      const contract = await getReadOnlyContract();
-      const contractWithSigner = contract.connect(signer);
 
+      const contract: any = await getReadOnlyContract();
+      if (!contract) {
+        setStatus("❌ Contract not found!");
+        return;
+      }
+
+      // Cast to any to avoid TypeScript BaseContract errors
+      const contractWithSigner: any = contract.connect(signer);
       const tx = await contractWithSigner.vote(index);
       await tx.wait();
 
       setVotedIndex(index);
       setStatus("✅ Vote cast successfully!");
-      fetchCandidates(); // Refresh votes
+      fetchCandidates();
     } catch (err: any) {
       console.error(err);
       setStatus("❌ " + err.message);
@@ -79,15 +90,12 @@ const CandidatesList: React.FC = () => {
   return (
     <div className="space-y-6">
       {status && (
-        <p
-          className={`text-center font-semibold ${
-            status.startsWith("✅") ? "text-green-400" : "text-red-400"
-          }`}
-        >
+        <p className={`text-center font-semibold ${status.startsWith("✅") ? "text-green-400" : "text-red-400"}`}>
           {status}
         </p>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {candidates.map((c, i) => (
           <CandidateCard
             key={i}
