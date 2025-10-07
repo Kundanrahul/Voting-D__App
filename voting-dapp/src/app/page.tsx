@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getVotingContract } from "../../lib/Voting";
+import { connectWallet, disconnectWallet as disconnectWalletLib, getReadOnlyContract } from "../../lib/Voting";
 import CandidateCard from "../components/CandidateCard";
 import dynamic from "next/dynamic";
+import type { ApexOptions } from "apexcharts";
+import { FaWallet } from "react-icons/fa";
+import { HiOutlineLogout } from "react-icons/hi";
 
 // Dynamically import chart to avoid SSR issues
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
@@ -14,6 +17,9 @@ export default function Home() {
   const [votedIndex, setVotedIndex] = useState<number | null>(null);
   const [voteId, setVoteId] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [contract, setContract] = useState<any>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
 
   // Voting time & phase
   const [startTime, setStartTime] = useState<number>(0);
@@ -23,18 +29,51 @@ export default function Home() {
 
   const COLORS = ["#82ca9d", "#8884d8", "#ff8042", "#ff6384", "#36a2eb", "#ffcd56"];
 
-  // Fetch candidates + voting info
-  const fetchCandidates = async () => {
+  // ✅ Connect wallet
+  const handleConnectWallet = async (showStatusToast = true) => {
     try {
-      const contract = await getVotingContract();
-      if (!contract) return;
+      const result = await connectWallet();
+      if (!result) {
+        if (showStatusToast) setStatus("❌ Wallet connection failed!");
+        return;
+      }
 
-      const totalBN = await contract.totalCandidates();
+      setContract(result.contract);
+      setWalletAddress(result.address);
+      setWalletConnected(true);
+
+      if (showStatusToast) setStatus("✅Wallet connected!");
+
+      fetchCandidates(result.contract);
+      fetchVoterInfo(result.contract, result.address);
+    } catch (err: any) {
+      console.error("Wallet connect error:", err);
+      if (showStatusToast) setStatus("❌ " + err.message);
+    }
+  };
+
+  // ✅ Disconnect wallet
+  const handleDisconnectWallet = () => {
+    disconnectWalletLib();
+    setWalletConnected(false);
+    setWalletAddress(null);
+    setContract(null);
+    setVotedIndex(null);
+    setStatus("Wallet disconnected.");
+  };
+
+  // ✅ Fetch candidates
+  const fetchCandidates = async (contractInstance?: any) => {
+    try {
+      const contractToUse = contractInstance || contract || (await getReadOnlyContract());
+      if (!contractToUse) return;
+
+      const totalBN = await contractToUse.totalCandidates();
       const total = totalBN.toNumber?.() ?? Number(totalBN);
 
       const arr = [];
       for (let i = 0; i < total; i++) {
-        const [name, image, voteCount] = await contract.getCandidate(i);
+        const [name, image, voteCount] = await contractToUse.getCandidate(i);
         arr.push({
           name,
           image,
@@ -43,9 +82,8 @@ export default function Home() {
       }
       setCandidates(arr);
 
-      // Voting times
-      const start = await contract.startTime();
-      const end = await contract.endTime();
+      const start = await contractToUse.startTime();
+      const end = await contractToUse.endTime();
       const now = Math.floor(Date.now() / 1000);
       setStartTime(Number(start));
       setEndTime(Number(end));
@@ -54,23 +92,57 @@ export default function Home() {
       else if (now < Number(start)) setPhase("Not Started");
       else if (now >= Number(start) && now <= Number(end)) setPhase("In Progress");
       else setPhase("Ended");
-
-      // Voter info
-      const accounts = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
-      const voter = await contract.voters(accounts[0]);
-      if (voter.voted)
-        setVotedIndex(voter.voteIndex.toNumber?.() ?? Number(voter.voteIndex));
     } catch (err: any) {
       console.error("Error fetching candidates:", err);
       setStatus("❌ " + err.message);
     }
   };
 
-  // Countdown Timer: days, hours, minutes
+  // ✅ Fetch voter info
+  const fetchVoterInfo = async (contractInstance?: any, address?: string) => {
+    try {
+      const contractToUse = contractInstance || contract;
+      const userAddress = address || walletAddress;
+      if (!contractToUse || !userAddress) return;
+
+      const voter = await contractToUse.voters(userAddress);
+      if (voter.voted) setVotedIndex(voter.voteIndex.toNumber?.() ?? Number(voter.voteIndex));
+      else setVotedIndex(null);
+    } catch (err: any) {
+      console.error("Error fetching voter info:", err);
+    }
+  };
+
+  // ✅ Auto-reconnect wallet silently
+  useEffect(() => {
+    (async () => {
+      try {
+        if ((window as any)?.ethereum) {
+          await handleConnectWallet(false);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  // ✅ Account change listener
+  useEffect(() => {
+    const handleAccountsChanged = (accounts: string[]) => {
+      if (accounts.length === 0) {
+        handleDisconnectWallet();
+      } else {
+        handleConnectWallet(false);
+      }
+    };
+    (window as any).ethereum?.on?.("accountsChanged", handleAccountsChanged);
+    return () => {
+      (window as any).ethereum?.removeListener?.("accountsChanged", handleAccountsChanged);
+    };
+  }, []);
+
+  // ✅ Countdown timer
   useEffect(() => {
     const interval = setInterval(() => {
       if (!startTime || !endTime) return;
-
       const now = Math.floor(Date.now() / 1000);
       let diff = 0;
       let label = "";
@@ -88,41 +160,30 @@ export default function Home() {
 
       setTimeLeft(`${label} ${formatTime(diff)}`);
     }, 1000);
-
     return () => clearInterval(interval);
   }, [startTime, endTime]);
 
-  // Format seconds → Dd HHh MMm
   const formatTime = (seconds: number) => {
     const days = Math.floor(seconds / (3600 * 24));
     const hours = Math.floor((seconds % (3600 * 24)) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-
     let result = "";
     if (days > 0) result += `${days}d `;
     if (hours > 0 || days > 0) result += `${hours}h `;
     result += `${minutes}m`;
-
     return result;
   };
 
+  // ✅ Vote
   const vote = async (index: number) => {
     try {
-      const contract = await getVotingContract();
-      if (!contract) {
-        setStatus("❌ Connect MetaMask first.");
+      if (!contract || !walletConnected) {
+        setStatus("❌ Connect Wallet first.");
         return;
       }
-
       const now = Math.floor(Date.now() / 1000);
-      if (now < startTime) {
-        setStatus("❌ Voting has not started yet!");
-        return;
-      }
-      if (now > endTime) {
-        setStatus("❌ Voting has ended!");
-        return;
-      }
+      if (now < startTime) return setStatus("❌ Voting has not started yet!");
+      if (now > endTime) return setStatus("❌ Voting has ended!");
 
       const tx = await contract.vote(index);
       await tx.wait();
@@ -133,7 +194,9 @@ export default function Home() {
 
       setStatus("✅ Voted successfully!");
       setVotedIndex(index);
+
       fetchCandidates();
+      fetchVoterInfo();
     } catch (err: any) {
       console.error("Vote error:", err);
       setStatus("❌ " + err.message);
@@ -142,8 +205,6 @@ export default function Home() {
 
   useEffect(() => {
     fetchCandidates();
-    const interval = setInterval(fetchCandidates, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   const totalVotes = candidates.reduce((sum, c) => sum + c.voteCount, 0);
@@ -169,38 +230,71 @@ export default function Home() {
         },
       },
     },
-  };
+  } as const satisfies ApexOptions;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white px-4 py-8">
-      <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-center mb-6 text-slate-300">
+    <div className="min-h-screen flex flex-col items-center justify-start bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white px-4 py-8 font-sans">
+      <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-6 text-slate-300 tracking-wide">
         VOTING DAPP 🗳️
       </h1>
+<div className="fixed top-4 right-4 z-50">
+  {walletConnected ? (
+    <div className="flex items-center gap-3 bg-gray-800 bg-opacity-90 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg border border-gray-700 min-w-[180px] sm:min-w-[220px]">
+       <FaWallet className="text-green-300" />
+        <span className="text-sm sm:text-base font-medium text-green-300 truncate">
+          :{walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
+        </span>
+      <button
+        onClick={handleDisconnectWallet}
+        className="px-3 py-1 bg-red-400 hover:bg-red-300 text-red-900 hover:text-red-950 rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition-all"
+      >
+        <HiOutlineLogout />
+      </button>
+    </div>
+  ) : (
+    <button
+      onClick={() => handleConnectWallet(true)}
+      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl shadow-md text-sm sm:text-base font-semibold transition-all"
+    >
+      🔗 Connect Wallet
+    </button>
+  )}
+</div>
+
 
       {/* Voting Timer */}
       {phase !== "Not Set" && (
         <div className="mb-6 flex flex-col items-center justify-center bg-gray-800 px-6 py-4 rounded-xl shadow-lg w-full max-w-md text-center">
-          <p className="text-lg sm:text-sm md:text-xl font-semibold font-mono text-yellow-400 text-center">
-       {timeLeft}
-</p>
-
-          <p className="text-sm text-gray-400 mt-1">Phase: {phase}</p>
+          <p className="text-lg sm:text-xl md:text-2xl font-semibold font-mono text-yellow-400 text-center">
+            {timeLeft}
+          </p>
+          <p className="text-sm sm:text-base text-gray-400 mt-1">Phase: {phase}</p>
         </div>
       )}
 
       {/* Status */}
       {status && (
-        <p className={`mb-4 text-center text-sm sm:text-base font-semibold ${status.startsWith("✅") ? "text-green-400" : "text-red-400"}`}>
+        <p
+          className={`mb-4 text-center text-sm sm:text-base font-semibold ${
+            status.startsWith("✅") ? "text-green-400" : "text-red-400"
+          }`}
+        >
           {status}
         </p>
       )}
 
       {/* Toast */}
-      <div className={`fixed top-5 right-5 bg-blue-600 text-white px-4 py-3 rounded shadow-lg transition-all duration-500 ${showToast ? "opacity-100 translate-x-0" : "opacity-0 translate-x-[150%]"}`}>
-        {voteId && <>✅ Vote ID: <strong>{voteId.slice(0, 10)}...</strong></>}
+      <div
+        className={`fixed top-20 right-5 bg-blue-600 text-white px-4 py-3 rounded shadow-lg transition-all duration-500 ${
+          showToast ? "opacity-100 translate-x-0" : "opacity-0 translate-x-[150%]"
+        }`}
+      >
+        {voteId && (
+          <>
+            ✅ Vote ID: <strong>{voteId.slice(0, 10)}...</strong>
+          </>
+        )}
       </div>
-
-      {candidates.length === 0 && <p className="text-gray-400 text-center text-sm sm:text-base"> </p>}
 
       {/* Candidate Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 place-items-center justify-center w-full max-w-6xl mb-10">
@@ -219,9 +313,9 @@ export default function Home() {
       {/* Chart */}
       {candidates.length > 0 && totalVotes > 0 && (
         <div className="bg-gray-800 p-6 rounded-2xl shadow-lg w-full max-w-2xl mb-10">
-          <h2 className="text-lg font-semibold text-center mb-3">📊 Vote Distribution</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-center mb-3">📊 Vote Distribution</h2>
           <Chart options={chartOptions} series={pieData} type="donut" width="100%" height="320" />
-          <p className="text-center mt-2 text-gray-300 text-sm">
+          <p className="text-center mt-2 text-gray-300 text-sm sm:text-base">
             Total Votes: <span className="text-indigo-400 font-bold">{totalVotes}</span>
           </p>
         </div>
@@ -229,6 +323,12 @@ export default function Home() {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 

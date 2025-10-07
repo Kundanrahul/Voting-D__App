@@ -1,70 +1,122 @@
 import { ethers } from "ethers";
 import VotingJSON from "../../sol-proj/lib/Voting.json";
+import WalletConnectProvider from "@walletconnect/web3-provider";
+import Web3Modal from "web3modal";
 
-// MetaMask-connected contract (Sepolia)
+// Web3Modal instance (MetaMask + WalletConnect)
+let web3Modal: Web3Modal;
 
-export async function getVotingContract() {
+if (typeof window !== "undefined") {
+  web3Modal = new Web3Modal({
+    cacheProvider: true, // allows auto-connect; we will clear it on disconnect
+    providerOptions: {
+      walletconnect: {
+        package: WalletConnectProvider,
+        options: {
+          infuraId: process.env.NEXT_PUBLIC_INFURA_PROJECT_ID,
+        },
+      },
+    },
+  });
+}
+
+// ✅ Global signer & wallet-connected contract
+let signer: ethers.Signer | null = null;
+let walletContract: ethers.Contract | null = null;
+let walletAddress: string | null = null;
+
+// ✅ Connect wallet
+export async function connectWallet(): Promise<{ contract: ethers.Contract; address: string } | null> {
   if (typeof window === "undefined") return null;
+
   try {
-    const provider = new ethers.BrowserProvider((window as any).ethereum);
-    await provider.send("eth_requestAccounts", []); // request user accounts
-    const signer = await provider.getSigner();
+    // Always prompt for wallet selection
+    const providerInstance = await web3Modal.connect();
+    const provider = new ethers.BrowserProvider(providerInstance);
 
-    const contract = new ethers.Contract(VotingJSON.address, VotingJSON.abi, signer);
+    // Request accounts
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    walletAddress = await signer.getAddress();
 
-    console.log("🔹 Connected contract address:", VotingJSON.address);
-    console.log("🔹 Current network:", await provider.getNetwork());
-    console.log("🔹 Connected wallet:", await signer.getAddress());
+    walletContract = new ethers.Contract(VotingJSON.address, VotingJSON.abi, signer);
 
-    return contract;
+    console.log("🔹 Connected wallet:", walletAddress);
+    console.log("🔹 Contract address:", VotingJSON.address);
+
+    return { contract: walletContract, address: walletAddress };
   } catch (err: any) {
-    console.error("Failed to get contract:", err.message);
+    console.error("Failed to connect wallet:", err.message);
     return null;
   }
 }
-// Read-only provider (for non-MetaMask / display only)
 
-export async function getReadOnlyContract() {
+// ✅ Disconnect wallet
+export function disconnectWallet() {
+  if (typeof window === "undefined") return;
+
+  if (web3Modal) {
+    web3Modal.clearCachedProvider(); // clear cached wallet
+  }
+
+  signer = null;
+  walletContract = null;
+  walletAddress = null;
+
+  console.log("🔌 Wallet disconnected.");
+}
+
+// ✅ Get wallet-connected contract (reuse if already connected)
+export async function getWalletContract(): Promise<{ contract: ethers.Contract; address: string } | null> {
+  if (walletContract && signer && walletAddress) {
+    return { contract: walletContract, address: walletAddress };
+  }
+  return await connectWallet();
+}
+
+// ✅ Get read-only contract
+export async function getReadOnlyContract(): Promise<ethers.Contract | null> {
   try {
     const provider = new ethers.JsonRpcProvider(process.env.NEXT_PUBLIC_INFURA_SEPOLIA_URL);
-    const contract = new ethers.Contract(VotingJSON.address, VotingJSON.abi, provider);
-    return contract;
+    return new ethers.Contract(VotingJSON.address, VotingJSON.abi, provider);
   } catch (err) {
     console.error("Failed to get read-only contract:", err);
     return null;
   }
 }
 
-//Fetch all candidates
-export async function getCandidates() {
-  const contract = await getVotingContract();
-  if (!contract) return [];
-
+// ✅ Fetch all candidates
+export async function getCandidates(): Promise<any[]> {
   try {
+    const wc = await getWalletContract();
+    const contract = wc?.contract || (await getReadOnlyContract());
+    if (!contract) return [];
+
     const total = await contract.totalCandidates();
-    const candidates = [];
+    const arr = [];
     for (let i = 0; i < total; i++) {
-      const c = await contract.getCandidate(i); // returns [name, image, voteCount]
-      candidates.push({
+      const c = await contract.getCandidate(i);
+      arr.push({
         index: i,
         name: c[0],
         image: c[1],
         voteCount: Number(c[2]),
       });
     }
-    console.log("Updated candidates:", candidates);
-    return candidates;
+    return arr;
   } catch (err) {
     console.error("Error fetching candidates:", err);
     return [];
   }
 }
-//Check if a wallet has voted
-export async function getVoterStatus(address: string) {
-  const contract = await getVotingContract();
-  if (!contract) return null;
 
+// ✅ Check voter status
+export async function getVoterStatus(address: string) {
   try {
+    const wc = await getWalletContract();
+    const contract = wc?.contract || (await getReadOnlyContract());
+    if (!contract) return null;
+
     const voter = await contract.voters(address);
     return {
       voted: voter.voted,
@@ -75,13 +127,14 @@ export async function getVoterStatus(address: string) {
     return null;
   }
 }
-// Cast a vote
+
+// ✅ Cast a vote
 export async function voteForCandidate(index: number) {
-  const contract = await getVotingContract();
-  if (!contract) throw new Error("Connect MetaMask first⚠️");
+  const wc = await getWalletContract();
+  if (!wc) throw new Error("Connect wallet first ⚠️");
 
   try {
-    const tx = await contract.vote(index);
+    const tx = await wc.contract.vote(index);
     console.log("🗳️ Voting tx sent:", tx.hash);
     await tx.wait();
     console.log("Vote confirmed!");
@@ -91,15 +144,14 @@ export async function voteForCandidate(index: number) {
     throw err;
   }
 }
-//Admin: add candidate
 
+// ✅ Add candidate (Admin)
 export async function addCandidate(name: string, image: string) {
-  const contract = await getVotingContract();
-  if (!contract) throw new Error("Connect MetaMask first");
+  const wc = await getWalletContract();
+  if (!wc) throw new Error("Connect wallet first ⚠️");
 
   try {
-    const tx = await contract.addCandidate(name, image);
-    console.log("👤 Adding candidate tx:", tx.hash);
+    const tx = await wc.contract.addCandidate(name, image);
     await tx.wait();
     console.log("Candidate added!");
     return true;
@@ -109,12 +161,13 @@ export async function addCandidate(name: string, image: string) {
   }
 }
 
-//Get admin address
-export async function getAdmin() {
-  const contract = await getVotingContract();
-  if (!contract) return null;
-
+// ✅ Get admin address
+export async function getAdmin(): Promise<string | null> {
   try {
+    const wc = await getWalletContract();
+    const contract = wc?.contract || (await getReadOnlyContract());
+    if (!contract) return null;
+
     const admin = await contract.admin();
     console.log("Admin address:", admin);
     return admin;
@@ -123,4 +176,6 @@ export async function getAdmin() {
     return null;
   }
 }
+
+
 
