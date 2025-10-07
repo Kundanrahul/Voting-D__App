@@ -21,16 +21,32 @@ export default function Home() {
   const [contract, setContract] = useState<any>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
 
-  // Voting time & phase
   const [startTime, setStartTime] = useState<number>(0);
   const [endTime, setEndTime] = useState<number>(0);
   const [timeLeft, setTimeLeft] = useState<string>("");
   const [phase, setPhase] = useState<string>("");
 
+  const [isMobile, setIsMobile] = useState(false);
+  const [showMobilePrompt, setShowMobilePrompt] = useState(false);
+
   const COLORS = ["#82ca9d", "#8884d8", "#ff8042", "#ff6384", "#36a2eb", "#ffcd56"];
 
-  // ✅ Connect wallet
+  // Detect mobile devices
+  useEffect(() => {
+    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+    if (/android|iPad|iPhone|iPod/i.test(userAgent)) {
+      setIsMobile(true);
+    }
+  }, []);
+
+  // ✅ Connect wallet (desktop)
   const handleConnectWallet = async (showStatusToast = true) => {
+    if (isMobile && !(window as any).ethereum) {
+      // Show mobile prompt if wallet not detected
+      setShowMobilePrompt(true);
+      return;
+    }
+
     try {
       const result = await connectWallet();
       if (!result) {
@@ -52,7 +68,6 @@ export default function Home() {
     }
   };
 
-  // ✅ Disconnect wallet
   const handleDisconnectWallet = () => {
     disconnectWalletLib();
     setWalletConnected(false);
@@ -62,7 +77,7 @@ export default function Home() {
     setStatus("Wallet disconnected.");
   };
 
-  // ✅ Fetch candidates
+  // Fetch candidates & voter info
   const fetchCandidates = async (contractInstance?: any) => {
     try {
       const contractToUse = contractInstance || contract || (await getReadOnlyContract());
@@ -98,7 +113,6 @@ export default function Home() {
     }
   };
 
-  // ✅ Fetch voter info
   const fetchVoterInfo = async (contractInstance?: any, address?: string) => {
     try {
       const contractToUse = contractInstance || contract;
@@ -113,33 +127,7 @@ export default function Home() {
     }
   };
 
-  // ✅ Auto-reconnect wallet silently
-  useEffect(() => {
-    (async () => {
-      try {
-        if ((window as any)?.ethereum) {
-          await handleConnectWallet(false);
-        }
-      } catch {}
-    })();
-  }, []);
-
-  // ✅ Account change listener
-  useEffect(() => {
-    const handleAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
-        handleDisconnectWallet();
-      } else {
-        handleConnectWallet(false);
-      }
-    };
-    (window as any).ethereum?.on?.("accountsChanged", handleAccountsChanged);
-    return () => {
-      (window as any).ethereum?.removeListener?.("accountsChanged", handleAccountsChanged);
-    };
-  }, []);
-
-  // ✅ Countdown timer
+  // Countdown timer
   useEffect(() => {
     const interval = setInterval(() => {
       if (!startTime || !endTime) return;
@@ -158,23 +146,18 @@ export default function Home() {
         return;
       }
 
-      setTimeLeft(`${label} ${formatTime(diff)}`);
+      const days = Math.floor(diff / (3600 * 24));
+      const hours = Math.floor((diff % (3600 * 24)) / 3600);
+      const minutes = Math.floor((diff % 3600) / 60);
+      let result = "";
+      if (days > 0) result += `${days}d `;
+      if (hours > 0 || days > 0) result += `${hours}h `;
+      result += `${minutes}m`;
+      setTimeLeft(`${label} ${result}`);
     }, 1000);
     return () => clearInterval(interval);
   }, [startTime, endTime]);
 
-  const formatTime = (seconds: number) => {
-    const days = Math.floor(seconds / (3600 * 24));
-    const hours = Math.floor((seconds % (3600 * 24)) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    let result = "";
-    if (days > 0) result += `${days}d `;
-    if (hours > 0 || days > 0) result += `${hours}h `;
-    result += `${minutes}m`;
-    return result;
-  };
-
-  // ✅ Vote
   const vote = async (index: number) => {
     try {
       if (!contract || !walletConnected) {
@@ -237,30 +220,55 @@ export default function Home() {
       <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-6 text-slate-300 tracking-wide">
         VOTING DAPP 🗳️
       </h1>
-<div className="fixed top-4 right-4 z-50">
-  {walletConnected ? (
-    <div className="flex items-center gap-3 bg-gray-800 bg-opacity-90 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg border border-gray-700 min-w-[180px] sm:min-w-[220px]">
-       <FaWallet className="text-green-300" />
-        <span className="text-sm sm:text-base font-medium text-green-300 truncate">
-          :{walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
-        </span>
-      <button
-        onClick={handleDisconnectWallet}
-        className="px-3 py-1 bg-red-400 hover:bg-red-300 text-red-900 hover:text-red-950 rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition-all"
-      >
-        <HiOutlineLogout />
-      </button>
-    </div>
-  ) : (
-    <button
-      onClick={() => handleConnectWallet(true)}
-      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl shadow-md text-sm sm:text-base font-semibold transition-all"
-    >
-      🔗 Connect Wallet
-    </button>
-  )}
-</div>
 
+      {/* Wallet connect */}
+      <div className="fixed top-4 right-4 z-50">
+        {walletConnected ? (
+          <div className="flex items-center gap-3 bg-gray-800 bg-opacity-90 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg border border-gray-700 min-w-[180px] sm:min-w-[220px]">
+            <FaWallet className="text-green-300" />
+            <span className="text-sm sm:text-base font-medium text-green-300 truncate">
+              :{walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
+            </span>
+            <button
+              onClick={handleDisconnectWallet}
+              className="px-3 py-1 bg-red-400 hover:bg-red-300 text-red-900 hover:text-red-950 rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition-all"
+            >
+              <HiOutlineLogout />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => handleConnectWallet(true)}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl shadow-md text-sm sm:text-base font-semibold transition-all"
+          >
+            🔗 Connect Wallet
+          </button>
+        )}
+      </div>
+
+      {/* Mobile Wallet Prompt Modal */}
+      {showMobilePrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-xl text-center shadow-lg w-11/12 max-w-sm">
+            <h2 className="text-xl font-bold mb-4">Wallet not detected</h2>
+            <p className="mb-4">To use this dApp on mobile, you need a wallet app like MetaMask or Trust Wallet.</p>
+            <a
+              href="https://metamask.io/download/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mb-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-white font-semibold"
+            >
+              Install MetaMask
+            </a>
+            <button
+              onClick={() => setShowMobilePrompt(false)}
+              className="px-4 py-2 rounded bg-red-500 hover:bg-red-400 text-white font-semibold"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Voting Timer */}
       {phase !== "Not Set" && (
@@ -323,6 +331,7 @@ export default function Home() {
     </div>
   );
 }
+
 
 
 
