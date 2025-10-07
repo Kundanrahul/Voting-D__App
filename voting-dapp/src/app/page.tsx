@@ -4,9 +4,10 @@ import { useState, useEffect } from "react";
 import { connectWallet, disconnectWallet as disconnectWalletLib, getReadOnlyContract } from "../../lib/Voting";
 import CandidateCard from "../components/CandidateCard";
 import dynamic from "next/dynamic";
-import type { ApexOptions } from "apexcharts";
 import { FaWallet } from "react-icons/fa";
 import { HiOutlineLogout } from "react-icons/hi";
+import type { ApexOptions } from "apexcharts";
+import { ethers } from "ethers";
 
 // Dynamically import chart to avoid SSR issues
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
@@ -26,23 +27,15 @@ export default function Home() {
   const [timeLeft, setTimeLeft] = useState<string>("");
   const [phase, setPhase] = useState<string>("");
 
-  const [isMobile, setIsMobile] = useState(false);
   const [showMobilePrompt, setShowMobilePrompt] = useState(false);
 
   const COLORS = ["#82ca9d", "#8884d8", "#ff8042", "#ff6384", "#36a2eb", "#ffcd56"];
 
-  // Detect mobile devices
-  useEffect(() => {
-    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-    if (/android|iPad|iPhone|iPod/i.test(userAgent)) {
-      setIsMobile(true);
-    }
-  }, []);
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-  // ✅ Connect wallet (desktop)
-  const handleConnectWallet = async (showStatusToast = true) => {
+  // ------------------ Connect / Disconnect Wallet ------------------
+  const handleConnectWallet = async () => {
     if (isMobile && !(window as any).ethereum) {
-      // Show mobile prompt if wallet not detected
       setShowMobilePrompt(true);
       return;
     }
@@ -50,21 +43,20 @@ export default function Home() {
     try {
       const result = await connectWallet();
       if (!result) {
-        if (showStatusToast) setStatus("❌ Wallet connection failed!");
+        setStatus("❌ Wallet connection failed!");
         return;
       }
 
       setContract(result.contract);
       setWalletAddress(result.address);
       setWalletConnected(true);
-
-      if (showStatusToast) setStatus("✅Wallet connected!");
+      setStatus("✅ Wallet connected!");
 
       fetchCandidates(result.contract);
       fetchVoterInfo(result.contract, result.address);
     } catch (err: any) {
-      console.error("Wallet connect error:", err);
-      if (showStatusToast) setStatus("❌ " + err.message);
+      console.error(err);
+      setStatus("❌ " + err.message);
     }
   };
 
@@ -77,7 +69,7 @@ export default function Home() {
     setStatus("Wallet disconnected.");
   };
 
-  // Fetch candidates & voter info
+  // ------------------ Fetch Candidates ------------------
   const fetchCandidates = async (contractInstance?: any) => {
     try {
       const contractToUse = contractInstance || contract || (await getReadOnlyContract());
@@ -113,6 +105,7 @@ export default function Home() {
     }
   };
 
+  // ------------------ Fetch voter info ------------------
   const fetchVoterInfo = async (contractInstance?: any, address?: string) => {
     try {
       const contractToUse = contractInstance || contract;
@@ -127,7 +120,27 @@ export default function Home() {
     }
   };
 
-  // Countdown timer
+  // ------------------ Auto-reconnect / listeners ------------------
+  useEffect(() => {
+    (async () => {
+      try {
+        if ((window as any)?.ethereum) await handleConnectWallet();
+      } catch {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    const handleAccountsChanged = (accounts: string[]) => {
+      if (accounts.length === 0) handleDisconnectWallet();
+      else handleConnectWallet();
+    };
+    (window as any).ethereum?.on?.("accountsChanged", handleAccountsChanged);
+    return () => {
+      (window as any).ethereum?.removeListener?.("accountsChanged", handleAccountsChanged);
+    };
+  }, []);
+
+  // ------------------ Countdown Timer ------------------
   useEffect(() => {
     const interval = setInterval(() => {
       if (!startTime || !endTime) return;
@@ -158,12 +171,14 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [startTime, endTime]);
 
+  // ------------------ Vote ------------------
   const vote = async (index: number) => {
     try {
       if (!contract || !walletConnected) {
         setStatus("❌ Connect Wallet first.");
         return;
       }
+
       const now = Math.floor(Date.now() / 1000);
       if (now < startTime) return setStatus("❌ Voting has not started yet!");
       if (now > endTime) return setStatus("❌ Voting has ended!");
@@ -181,7 +196,7 @@ export default function Home() {
       fetchCandidates();
       fetchVoterInfo();
     } catch (err: any) {
-      console.error("Vote error:", err);
+      console.error(err);
       setStatus("❌ " + err.message);
     }
   };
@@ -213,7 +228,7 @@ export default function Home() {
         },
       },
     },
-  } as const satisfies ApexOptions;
+  }as const satisfies ApexOptions;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white px-4 py-8 font-sans">
@@ -221,7 +236,7 @@ export default function Home() {
         VOTING DAPP 🗳️
       </h1>
 
-      {/* Wallet connect */}
+      {/* Wallet button */}
       <div className="fixed top-4 right-4 z-50">
         {walletConnected ? (
           <div className="flex items-center gap-3 bg-gray-800 bg-opacity-90 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg border border-gray-700 min-w-[180px] sm:min-w-[220px]">
@@ -238,7 +253,7 @@ export default function Home() {
           </div>
         ) : (
           <button
-            onClick={() => handleConnectWallet(true)}
+            onClick={handleConnectWallet}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl shadow-md text-sm sm:text-base font-semibold transition-all"
           >
             🔗 Connect Wallet
@@ -246,12 +261,14 @@ export default function Home() {
         )}
       </div>
 
-      {/* Mobile Wallet Prompt Modal */}
+      {/* Mobile prompt */}
       {showMobilePrompt && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-gray-800 p-6 rounded-xl text-center shadow-lg w-11/12 max-w-sm">
             <h2 className="text-xl font-bold mb-4">Wallet not detected</h2>
-            <p className="mb-4">To use this dApp on mobile, you need a wallet app like MetaMask or Trust Wallet.</p>
+            <p className="mb-4">
+              To use this dApp on mobile, open it in a wallet browser like MetaMask, Trust Wallet, or Rainbow.
+            </p>
             <a
               href="https://metamask.io/download/"
               target="_blank"
@@ -282,11 +299,7 @@ export default function Home() {
 
       {/* Status */}
       {status && (
-        <p
-          className={`mb-4 text-center text-sm sm:text-base font-semibold ${
-            status.startsWith("✅") ? "text-green-400" : "text-red-400"
-          }`}
-        >
+        <p className={`mb-4 text-center text-sm sm:text-base font-semibold ${status.startsWith("✅") ? "text-green-400" : "text-red-400"}`}>
           {status}
         </p>
       )}
