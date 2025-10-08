@@ -1,3 +1,5 @@
+Please claim your free sepolia eth faucet before voting,your txn hash will be recorded and you can only vote once per wallet ,happy voting! ;) 
+
 1))This project demonstrates a fully on-chain voting system, allowing users to:
 
 Connect their crypto wallet (MetaMask or WalletConnect)
