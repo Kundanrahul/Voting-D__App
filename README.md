@@ -18,6 +18,8 @@ One-Vote-Per-User Enforcement
 Voting Timer – Shows when voting starts/ends
 Admin Dashboard – Add or manage candidates
 Mobile Friendly – Works perfectly on mobile Chrome (WalletConnect enabled)
+
+
 3) Tech Stack-
 
 Smart Contract:	Solidity
