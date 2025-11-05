@@ -1,30 +1,56 @@
-Please claim your free sepolia eth faucet before voting,your txn hash will be recorded and you can only vote once per wallet ,happy voting! ;) 
+# On-Chain Voting DApp
 
-1) This project demonstrates a fully on-chain voting system, allowing users to:
+> **Please claim your free Sepolia ETH from a faucet before voting.**  
+> Your transaction hash will be recorded, and each wallet can vote **only once**.  
+>  
+> Happy Voting!
 
-Connect their crypto wallet (MetaMask or WalletConnect)
-View live voting status & time left
-Cast a single secure vote
-See real-time vote distribution in a chart
-Admins can add candidates directly through the smart contract
+---
 
-Built with Next.js, Ethers.js, Solidity, and Web3Modal, this DApp works seamlessly across desktop and mobile browsers.
+## Overview
 
-2) Features-
+This project demonstrates a fully on-chain voting system built on the Ethereum Sepolia Testnet.  
 
-Wallet Integration – Connect using MetaMask or WalletConnect
-Live Vote Tracking – Realtime updates with chart visualization
-One-Vote-Per-User Enforcement
-Voting Timer – Shows when voting starts/ends
-Admin Dashboard – Add or manage candidates
-Mobile Friendly – Works perfectly on mobile Chrome (WalletConnect enabled)
+It enables users to:
 
+- Connect their crypto wallet (MetaMask or WalletConnect)  
+- View live voting status and remaining time  
+- Cast a single secure vote per wallet  
+- See real-time vote distribution in an interactive chart  
+- Allow admins to add or manage candidates directly through the smart contract  
 
-3) Tech Stack-
+Built with Next.js, Ethers.js, Solidity, and Web3Modal, this DApp works seamlessly across both desktop and mobile browsers.
 
-Smart Contract:	Solidity
-Blockchain:	Ethereum Sepolia Testnet
-Frontent: Next.js + TypeScript
-Wallet Integration:	Web3Modal + WalletConnect
-UI Styling:	TailwindCSS
-Charts:	ApexCharts
+---
+
+## Features
+
+- Wallet Integration – Connect using MetaMask or WalletConnect  
+- Live Vote Tracking – Real-time updates with chart visualization  
+- One-Vote-Per-User Enforcement – Prevents multiple votes from the same wallet  
+- Voting Timer – Displays when voting starts and ends dynamically  
+- Admin Dashboard – Add or manage candidates securely on-chain  
+- Mobile Friendly – Works smoothly on mobile Chrome (WalletConnect enabled)
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|:------|:------------|
+| Smart Contract | Solidity |
+| Blockchain | Ethereum (Sepolia Testnet) |
+| Frontend | Next.js + TypeScript |
+| Wallet Integration | Web3Modal + WalletConnect |
+| UI Styling | TailwindCSS |
+| Charts | ApexCharts |
+
+---
+
+## Getting Started
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/your-username/voting-dapp.git
+cd voting-dapp
+
